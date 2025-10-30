@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 
 import java.util.List;
 
@@ -29,7 +30,13 @@ public class CommentController {
     public ResponseEntity<?> create(@PathVariable Integer postId,
                                     HttpServletRequest request,
                                     @RequestBody @Validated CreateCommentRequest req) {
-        Integer userId = (Integer) request.getAttribute("userId");
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("userId") == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ApiResponse<>("unauthorized", java.util.Map.of("error", "로그인이 필요합니다.")));
+        }
+
+        Integer userId = (Integer) session.getAttribute("userId");
         Comment c = comments.create(userId, postId, req);
         return ResponseEntity.status(HttpStatus.CREATED).body(new ApiResponse<>("create_comment_success",
                 java.util.Map.of("commentId", c.getId(), "content", c.getContent())));
@@ -40,7 +47,13 @@ public class CommentController {
                                     @PathVariable Integer commentId,
                                     HttpServletRequest request,
                                     @RequestBody @Validated UpdateCommentRequest req) {
-        Integer userId = (Integer) request.getAttribute("userId");
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("userId") == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ApiResponse<>("unauthorized", java.util.Map.of("error", "로그인이 필요합니다.")));
+        }
+
+        Integer userId = (Integer) session.getAttribute("userId");
         Comment c = comments.update(userId, commentId, req);
         return ResponseEntity.ok(new ApiResponse<>("update_comment_success",
                 java.util.Map.of("commentId", c.getId(), "content", c.getContent())));
@@ -50,7 +63,13 @@ public class CommentController {
     public ResponseEntity<?> deleteSoft(@PathVariable Integer postId,
                                         @PathVariable Integer commentId,
                                         HttpServletRequest request) {
-        Integer userId = (Integer) request.getAttribute("userId");
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("userId") == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ApiResponse<>("unauthorized", java.util.Map.of("error", "로그인이 필요합니다.")));
+        }
+
+        Integer userId = (Integer) session.getAttribute("userId");
         comments.softDelete(userId, commentId);
         return ResponseEntity.ok(new ApiResponse<>("delete_comment_success", java.util.Map.of("commentId", commentId)));
     }

@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.Page;
 import org.springframework.web.multipart.MultipartFile;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 
 @RestController
 @RequestMapping("/posts")
@@ -50,7 +51,13 @@ public class PostController {
     @PostMapping
     public ResponseEntity<?> create(HttpServletRequest request,
                                     @RequestBody @Validated CreatePostRequest req) {
-        Integer userId = (Integer) request.getAttribute("userId");
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("userId") == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ApiResponse<>("unauthorized", java.util.Map.of("error", "로그인이 필요합니다.")));
+        }
+
+        Integer userId = (Integer) session.getAttribute("userId");
         Post p = posts.create(userId, req);
         return ResponseEntity.status(HttpStatus.CREATED).body(new ApiResponse<>("create_post_success", java.util.Map.of("postId", p.getId())));
     }
@@ -58,24 +65,29 @@ public class PostController {
     @PostMapping("/upload-image")
     public ResponseEntity<?> uploadImage(HttpServletRequest request,
                                          @RequestParam("file") MultipartFile file) {
-        Integer userId = (Integer) request.getAttribute("userId");
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("userId") == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ApiResponse<>("unauthorized", java.util.Map.of("error", "로그인이 필요합니다.")));
+        }
+
         try {
             // 파일 유효성 검사
             if (file.isEmpty()) {
                 return ResponseEntity.badRequest()
                         .body(new ApiResponse<>("upload_failed", java.util.Map.of("error", "파일이 비어있습니다.")));
             }
-            
+
             // 이미지 파일 타입 검사
             String contentType = file.getContentType();
             if (contentType == null || !contentType.startsWith("image/")) {
                 return ResponseEntity.badRequest()
                         .body(new ApiResponse<>("upload_failed", java.util.Map.of("error", "이미지 파일만 업로드 가능합니다.")));
             }
-            
+
             // S3에 이미지 업로드
             String imageUrl = s3Service.uploadImage(file);
-            
+
             return ResponseEntity.ok(new ApiResponse<>("upload_success", java.util.Map.of("imageUrl", imageUrl)));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -87,7 +99,13 @@ public class PostController {
     public ResponseEntity<?> update(@PathVariable Integer postId,
                                     HttpServletRequest request,
                                     @RequestBody @Validated UpdatePostRequest req) {
-        Integer userId = (Integer) request.getAttribute("userId");
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("userId") == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ApiResponse<>("unauthorized", java.util.Map.of("error", "로그인이 필요합니다.")));
+        }
+
+        Integer userId = (Integer) session.getAttribute("userId");
         Post p = posts.update(userId, postId, req);
         return ResponseEntity.ok(new ApiResponse<>("update_post_success", java.util.Map.of("postId", p.getId())));
     }
@@ -95,7 +113,13 @@ public class PostController {
     @PutMapping("/{postId}")
     public ResponseEntity<?> deleteSoft(@PathVariable Integer postId,
                                         HttpServletRequest request) {
-        Integer userId = (Integer) request.getAttribute("userId");
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("userId") == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ApiResponse<>("unauthorized", java.util.Map.of("error", "로그인이 필요합니다.")));
+        }
+
+        Integer userId = (Integer) session.getAttribute("userId");
         posts.softDelete(userId, postId);
         return ResponseEntity.ok(new ApiResponse<>("delete_post_success", java.util.Map.of("postId", postId)));
     }
@@ -103,7 +127,13 @@ public class PostController {
     @PostMapping("/{postId}/like")
     public ResponseEntity<?> like(@PathVariable Integer postId,
                                   HttpServletRequest request) {
-        Integer userId = (Integer) request.getAttribute("userId");
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("userId") == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ApiResponse<>("unauthorized", java.util.Map.of("error", "로그인이 필요합니다.")));
+        }
+
+        Integer userId = (Integer) session.getAttribute("userId");
         long count = posts.like(userId, postId);
         return ResponseEntity.ok(new ApiResponse<>("like_success", java.util.Map.of("like", count)));
     }
@@ -111,7 +141,13 @@ public class PostController {
     @DeleteMapping("/{postId}/like")
     public ResponseEntity<?> unlike(@PathVariable Integer postId,
                                     HttpServletRequest request) {
-        Integer userId = (Integer) request.getAttribute("userId");
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("userId") == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ApiResponse<>("unauthorized", java.util.Map.of("error", "로그인이 필요합니다.")));
+        }
+
+        Integer userId = (Integer) session.getAttribute("userId");
         long count = posts.unlike(userId, postId);
         return ResponseEntity.ok(new ApiResponse<>("unlike_success", java.util.Map.of("like", count)));
     }
@@ -120,7 +156,13 @@ public class PostController {
     public ResponseEntity<?> myLikes(HttpServletRequest request,
                                      @RequestParam(defaultValue = "0") int page,
                                      @RequestParam(defaultValue = "10") int size) {
-        Integer userId = (Integer) request.getAttribute("userId");
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("userId") == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ApiResponse<>("unauthorized", java.util.Map.of("error", "로그인이 필요합니다.")));
+        }
+
+        Integer userId = (Integer) session.getAttribute("userId");
         Page<Post> liked = posts.likedBy(userId, page, size);
         return ResponseEntity.ok(new ApiResponse<>("get_liked_posts_success",
                 java.util.Map.of("posts", liked.getContent(), "pagination", java.util.Map.of("total_count", liked.getTotalElements()))));

@@ -32,14 +32,6 @@ dependencies {
     implementation("software.amazon.awssdk:auth:2.21.29")
     implementation("software.amazon.awssdk:core:2.21.29")
 
-    // JWT 의존성 추가
-    implementation("io.jsonwebtoken:jjwt-api:0.12.3")
-    runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.3")
-    runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.3")
-    
-    // Spring Security 제거
-    // implementation("org.springframework.boot:spring-boot-starter-security")
-
     runtimeOnly("com.mysql:mysql-connector-j:9.0.0")
     runtimeOnly("com.h2database:h2")
 
