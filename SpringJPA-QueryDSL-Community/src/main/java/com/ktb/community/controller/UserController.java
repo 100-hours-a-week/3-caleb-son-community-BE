@@ -5,21 +5,25 @@ import com.ktb.community.dto.ApiResponse;
 import com.ktb.community.dto.UserDtos.*;
 import com.ktb.community.service.UserService;
 import com.ktb.community.service.S3Service;
+import com.ktb.community.util.JwtUtil;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/users")
 public class UserController {
     private final UserService users;
     private final S3Service s3Service;
+    private final JwtUtil jwtUtil;
     
-    public UserController(UserService users, S3Service s3Service) { 
+    public UserController(UserService users, S3Service s3Service, JwtUtil jwtUtil) { 
         this.users = users; 
         this.s3Service = s3Service;
+        this.jwtUtil = jwtUtil;
     }
 
     @PostMapping("/signup")
@@ -33,13 +37,20 @@ public class UserController {
         try {
             User user = users.login(req);
             
-            java.util.Map<String, Object> userData = new java.util.HashMap<>();
-            userData.put("userId", user.getId());
-            userData.put("email", user.getEmail());
-            userData.put("nickname", user.getNickname());
-            userData.put("profileImageUrl", user.getProfileImageUrl() != null ? user.getProfileImageUrl() : "");
+            // JWT 토큰 생성
+            String accessToken = jwtUtil.generateAccessToken(user.getId(), user.getEmail(), user.getNickname());
+            String refreshToken = jwtUtil.generateRefreshToken(user.getId());
             
-            return ResponseEntity.ok(new ApiResponse<>("login_success", userData));
+            java.util.Map<String, Object> responseData = new java.util.HashMap<>();
+            responseData.put("userId", user.getId());
+            responseData.put("email", user.getEmail());
+            responseData.put("nickname", user.getNickname());
+            responseData.put("profileImageUrl", user.getProfileImageUrl() != null ? user.getProfileImageUrl() : "");
+            responseData.put("accessToken", accessToken);
+            responseData.put("refreshToken", refreshToken);
+            responseData.put("tokenType", "Bearer");
+            
+            return ResponseEntity.ok(new ApiResponse<>("login_success", responseData));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest()
                     .body(new ApiResponse<>("login_failed", java.util.Map.of("error", e.getMessage())));
@@ -50,15 +61,17 @@ public class UserController {
     }
 
     @PutMapping("/profile")
-    public ResponseEntity<?> updateProfile(@RequestHeader("X-USER-ID") Integer userId,
+    public ResponseEntity<?> updateProfile(HttpServletRequest request,
                                           @RequestBody @Validated UpdateProfileRequest req) {
+        Integer userId = (Integer) request.getAttribute("userId");
         User user = users.updateProfile(userId, req);
         return ResponseEntity.ok(new ApiResponse<>("update_profile_success", user));
     }
 
     @PostMapping("/upload-profile-image")
-    public ResponseEntity<?> uploadProfileImage(@RequestHeader("X-USER-ID") Integer userId,
+    public ResponseEntity<?> uploadProfileImage(HttpServletRequest request,
                                                @RequestParam("file") MultipartFile file) {
+        Integer userId = (Integer) request.getAttribute("userId");
         try {
             // 파일 유효성 검사
             if (file.isEmpty()) {
@@ -90,8 +103,9 @@ public class UserController {
     }
 
     @PutMapping("/change-password")
-    public ResponseEntity<?> changePassword(@RequestHeader("X-USER-ID") Integer userId,
+    public ResponseEntity<?> changePassword(HttpServletRequest request,
                                           @RequestBody @Validated ChangePasswordRequest req) {
+        Integer userId = (Integer) request.getAttribute("userId");
         try {
             User user = users.changePassword(userId, req);
             return ResponseEntity.ok(new ApiResponse<>("change_password_success", java.util.Map.of("userId", user.getId())));
@@ -101,6 +115,50 @@ public class UserController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new ApiResponse<>("change_password_failed", java.util.Map.of("error", "비밀번호 변경 중 오류가 발생했습니다.")));
+        }
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refreshToken(@RequestBody java.util.Map<String, String> request) {
+        try {
+            String refreshToken = request.get("refreshToken");
+            
+            if (refreshToken == null || refreshToken.isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(new ApiResponse<>("refresh_failed", java.util.Map.of("error", "Refresh token이 필요합니다.")));
+            }
+
+            if (!jwtUtil.validateToken(refreshToken)) {
+                return ResponseEntity.badRequest()
+                        .body(new ApiResponse<>("refresh_failed", java.util.Map.of("error", "유효하지 않은 refresh token입니다.")));
+            }
+
+            if (jwtUtil.isTokenExpired(refreshToken)) {
+                return ResponseEntity.badRequest()
+                        .body(new ApiResponse<>("refresh_failed", java.util.Map.of("error", "Refresh token이 만료되었습니다.")));
+            }
+
+            if (!jwtUtil.isRefreshToken(refreshToken)) {
+                return ResponseEntity.badRequest()
+                        .body(new ApiResponse<>("refresh_failed", java.util.Map.of("error", "잘못된 토큰 타입입니다.")));
+            }
+
+            Integer userId = jwtUtil.getUserIdFromToken(refreshToken);
+            String email = jwtUtil.getEmailFromToken(refreshToken);
+            String nickname = jwtUtil.getNicknameFromToken(refreshToken);
+
+            // 새로운 Access Token 생성
+            String newAccessToken = jwtUtil.generateAccessToken(userId, email, nickname);
+            
+            java.util.Map<String, Object> responseData = new java.util.HashMap<>();
+            responseData.put("accessToken", newAccessToken);
+            responseData.put("tokenType", "Bearer");
+            
+            return ResponseEntity.ok(new ApiResponse<>("refresh_success", responseData));
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<>("refresh_failed", java.util.Map.of("error", "토큰 갱신 중 오류가 발생했습니다.")));
         }
     }
 }

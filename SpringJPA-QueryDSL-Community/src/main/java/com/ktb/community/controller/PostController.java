@@ -11,6 +11,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.Page;
 import org.springframework.web.multipart.MultipartFile;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/posts")
@@ -47,15 +48,17 @@ public class PostController {
     }
 
     @PostMapping
-    public ResponseEntity<?> create(@RequestHeader("X-USER-ID") Integer userId,
+    public ResponseEntity<?> create(HttpServletRequest request,
                                     @RequestBody @Validated CreatePostRequest req) {
+        Integer userId = (Integer) request.getAttribute("userId");
         Post p = posts.create(userId, req);
         return ResponseEntity.status(HttpStatus.CREATED).body(new ApiResponse<>("create_post_success", java.util.Map.of("postId", p.getId())));
     }
 
     @PostMapping("/upload-image")
-    public ResponseEntity<?> uploadImage(@RequestHeader("X-USER-ID") Integer userId,
+    public ResponseEntity<?> uploadImage(HttpServletRequest request,
                                          @RequestParam("file") MultipartFile file) {
+        Integer userId = (Integer) request.getAttribute("userId");
         try {
             // 파일 유효성 검사
             if (file.isEmpty()) {
@@ -82,37 +85,42 @@ public class PostController {
 
     @PatchMapping("/{postId}")
     public ResponseEntity<?> update(@PathVariable Integer postId,
-                                    @RequestHeader("X-USER-ID") Integer userId,
+                                    HttpServletRequest request,
                                     @RequestBody @Validated UpdatePostRequest req) {
+        Integer userId = (Integer) request.getAttribute("userId");
         Post p = posts.update(userId, postId, req);
         return ResponseEntity.ok(new ApiResponse<>("update_post_success", java.util.Map.of("postId", p.getId())));
     }
 
     @PutMapping("/{postId}")
     public ResponseEntity<?> deleteSoft(@PathVariable Integer postId,
-                                        @RequestHeader("X-USER-ID") Integer userId) {
+                                        HttpServletRequest request) {
+        Integer userId = (Integer) request.getAttribute("userId");
         posts.softDelete(userId, postId);
         return ResponseEntity.ok(new ApiResponse<>("delete_post_success", java.util.Map.of("postId", postId)));
     }
 
     @PostMapping("/{postId}/like")
     public ResponseEntity<?> like(@PathVariable Integer postId,
-                                  @RequestHeader("X-USER-ID") Integer userId) {
+                                  HttpServletRequest request) {
+        Integer userId = (Integer) request.getAttribute("userId");
         long count = posts.like(userId, postId);
         return ResponseEntity.ok(new ApiResponse<>("like_success", java.util.Map.of("like", count)));
     }
 
     @DeleteMapping("/{postId}/like")
     public ResponseEntity<?> unlike(@PathVariable Integer postId,
-                                    @RequestHeader("X-USER-ID") Integer userId) {
+                                    HttpServletRequest request) {
+        Integer userId = (Integer) request.getAttribute("userId");
         long count = posts.unlike(userId, postId);
         return ResponseEntity.ok(new ApiResponse<>("unlike_success", java.util.Map.of("like", count)));
     }
 
     @GetMapping("/me/likes")
-    public ResponseEntity<?> myLikes(@RequestHeader("X-USER-ID") Integer userId,
+    public ResponseEntity<?> myLikes(HttpServletRequest request,
                                      @RequestParam(defaultValue = "0") int page,
                                      @RequestParam(defaultValue = "10") int size) {
+        Integer userId = (Integer) request.getAttribute("userId");
         Page<Post> liked = posts.likedBy(userId, page, size);
         return ResponseEntity.ok(new ApiResponse<>("get_liked_posts_success",
                 java.util.Map.of("posts", liked.getContent(), "pagination", java.util.Map.of("total_count", liked.getTotalElements()))));

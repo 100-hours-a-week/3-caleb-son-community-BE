@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.List;
 
@@ -26,8 +27,9 @@ public class CommentController {
 
     @PostMapping
     public ResponseEntity<?> create(@PathVariable Integer postId,
-                                    @RequestHeader("X-USER-ID") Integer userId,
+                                    HttpServletRequest request,
                                     @RequestBody @Validated CreateCommentRequest req) {
+        Integer userId = (Integer) request.getAttribute("userId");
         Comment c = comments.create(userId, postId, req);
         return ResponseEntity.status(HttpStatus.CREATED).body(new ApiResponse<>("create_comment_success",
                 java.util.Map.of("commentId", c.getId(), "content", c.getContent())));
@@ -36,8 +38,9 @@ public class CommentController {
     @PatchMapping("/{commentId}")
     public ResponseEntity<?> update(@PathVariable Integer postId,
                                     @PathVariable Integer commentId,
-                                    @RequestHeader("X-USER-ID") Integer userId,
+                                    HttpServletRequest request,
                                     @RequestBody @Validated UpdateCommentRequest req) {
+        Integer userId = (Integer) request.getAttribute("userId");
         Comment c = comments.update(userId, commentId, req);
         return ResponseEntity.ok(new ApiResponse<>("update_comment_success",
                 java.util.Map.of("commentId", c.getId(), "content", c.getContent())));
@@ -46,7 +49,8 @@ public class CommentController {
     @PutMapping("/{commentId}")
     public ResponseEntity<?> deleteSoft(@PathVariable Integer postId,
                                         @PathVariable Integer commentId,
-                                        @RequestHeader("X-USER-ID") Integer userId) {
+                                        HttpServletRequest request) {
+        Integer userId = (Integer) request.getAttribute("userId");
         comments.softDelete(userId, commentId);
         return ResponseEntity.ok(new ApiResponse<>("delete_comment_success", java.util.Map.of("commentId", commentId)));
     }
