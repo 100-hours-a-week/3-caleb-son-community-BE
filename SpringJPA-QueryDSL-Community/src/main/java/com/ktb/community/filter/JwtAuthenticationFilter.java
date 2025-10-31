@@ -72,24 +72,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
      */
     private boolean isPublicPath(String path) {
         // 로그인, 회원가입, 토큰 갱신은 공개
-        if (path.equals("/api/users/login") || 
-            path.equals("/api/users/signup") || 
-            path.equals("/api/users/refresh")) {
+        if (path.equals("/users/login") || 
+            path.equals("/users/signup") || 
+            path.equals("/users/refresh")) {
             return true;
         }
         
         // 게시글 목록, 상세 조회는 공개
-        if (path.equals("/api/posts") || path.matches("/api/posts/\\d+")) {
+        if (path.equals("/posts") || path.matches("/posts/\\d+")) {
             return true;
         }
         
         // 댓글 목록 조회는 공개
-        if (path.matches("/api/posts/\\d+/comments")) {
+        if (path.matches("/posts/\\d+/comments")) {
             return true;
         }
         
         // Privacy 페이지는 공개
-        if (path.startsWith("/api/privacy")) {
+        if (path.startsWith("/privacy")) {
             return true;
         }
         
