@@ -25,7 +25,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         
         // 공개 API는 JWT 검증 생략
         String path = request.getRequestURI();
-        if (isPublicPath(path)) {
+        String method = request.getMethod();
+        if (isPublicPath(path, method)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -70,7 +71,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     /**
      * 공개 API 경로 확인
      */
-    private boolean isPublicPath(String path) {
+    private boolean isPublicPath(String path, String method) {
         // 로그인, 회원가입, 토큰 갱신은 공개
         if (path.equals("/users/login") || 
             path.equals("/users/signup") || 
@@ -83,8 +84,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return true;
         }
         
-        // 댓글 목록 조회는 공개
-        if (path.matches("/posts/\\d+/comments")) {
+        // 댓글 목록 조회는 공개 (GET 요청만)
+        if (path.matches("/posts/\\d+/comments") && method.equals("GET")) {
             return true;
         }
         

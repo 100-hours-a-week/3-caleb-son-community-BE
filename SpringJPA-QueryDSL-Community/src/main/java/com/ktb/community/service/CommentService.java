@@ -36,6 +36,7 @@ public class CommentService {
         return c;
     }
 
+    @Transactional
     public Comment update(Integer userId, Integer commentId, UpdateCommentRequest req) {
         Comment c = comments.findById(commentId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "comment_not_found"));
         if (!c.getAuthor().getId().equals(userId)) throw new ApiException(ErrorCode.FORBIDDEN, "not_authorized");

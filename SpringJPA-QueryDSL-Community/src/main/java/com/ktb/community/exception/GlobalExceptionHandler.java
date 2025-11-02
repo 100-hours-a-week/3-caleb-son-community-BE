@@ -92,6 +92,15 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<SimpleErrorResponse> handleOther(Exception ex, HttpServletRequest req) {
+        // 스택 트레이스를 로그에 출력
+        ex.printStackTrace();
+        System.err.println("=== ERROR DEBUG ===");
+        System.err.println("Request URL: " + req.getRequestURI());
+        System.err.println("Exception Type: " + ex.getClass().getSimpleName());
+        System.err.println("Exception Message: " + ex.getMessage());
+        ex.printStackTrace(System.err);
+        System.err.println("=== END DEBUG ===");
+        
         var status = ErrorCode.INTERNAL_ERROR.getStatus();
         var body = new SimpleErrorResponse(status.value(), ErrorCode.INTERNAL_ERROR.getMessage());
         return ResponseEntity.status(status).body(body);

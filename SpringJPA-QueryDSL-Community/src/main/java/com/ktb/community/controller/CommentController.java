@@ -30,6 +30,12 @@ public class CommentController {
                                     HttpServletRequest request,
                                     @RequestBody @Validated CreateCommentRequest req) {
         Integer userId = (Integer) request.getAttribute("userId");
+        System.out.println("=== Comment Create Debug ===");
+        System.out.println("postId: " + postId);
+        System.out.println("userId: " + userId);
+        System.out.println("content: " + req.content());
+        System.out.println("=== End Debug ===");
+        
         Comment c = comments.create(userId, postId, req);
         return ResponseEntity.status(HttpStatus.CREATED).body(new ApiResponse<>("create_comment_success",
                 java.util.Map.of("commentId", c.getId(), "content", c.getContent())));
