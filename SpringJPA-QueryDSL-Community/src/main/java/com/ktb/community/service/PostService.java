@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class PostService {
@@ -37,6 +38,15 @@ public class PostService {
     public Post get(Integer id, boolean increaseView) {
         Post p = posts.findActiveById(id).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "post_not_found"));
         if (increaseView) { p.setViewCount(p.getViewCount() + 1); posts.save(p); }
+        return p;
+    }
+
+    public Post getWithLikeStatus(Integer userId, Integer postId, boolean increaseView) {
+        Post p = get(postId, increaseView);
+        if (userId != null) {
+            boolean isLiked = likes.findByUserIdAndPostId(userId, postId).isPresent();
+            p.setLiked(isLiked);
+        }
         return p;
     }
 
@@ -107,23 +117,30 @@ public class PostService {
         p.setDeleted(true); posts.save(p);
     }
 
-    public long like(Integer userId, Integer postId) {
+    public Map<String, Object> like(Integer userId, Integer postId) {
         User u = users.findById(userId).orElseThrow(() -> new ApiException(ErrorCode.UNAUTHORIZED, "token_not_valid"));
         Post p = get(postId, false);
-        if (likes.findByUserIdAndPostId(u.getId(), p.getId()).isPresent()) throw new ApiException(ErrorCode.ALREADY_LIKED, "already_liked");
-        likes.save(new PostLike(u, p));
+        var existing = likes.findByUserIdAndPostId(u.getId(), p.getId());
+        boolean isLiked;
+        if (existing.isPresent()) {
+            likes.delete(existing.get());
+            isLiked = false;
+        } else {
+            likes.save(new PostLike(u, p));
+            isLiked = true;
+        }
         long cnt = likes.countByPostId(p.getId());
         p.setLikeCount((int)cnt); posts.save(p);
-        return cnt;
+        return Map.of("like", cnt, "isLiked", isLiked);
     }
 
-    public long unlike(Integer userId, Integer postId) {
+    public Map<String, Object> unlike(Integer userId, Integer postId) {
         User u = users.findById(userId).orElseThrow(() -> new ApiException(ErrorCode.UNAUTHORIZED, "token_not_valid"));
         Post p = get(postId, false);
         likes.findByUserIdAndPostId(u.getId(), p.getId()).ifPresent(likes::delete);
         long cnt = likes.countByPostId(p.getId());
         p.setLikeCount((int)cnt); posts.save(p);
-        return cnt;
+        return Map.of("like", cnt, "isLiked", false);
     }
 
     public Page<Post> likedBy(Integer userId, int page, int size) {

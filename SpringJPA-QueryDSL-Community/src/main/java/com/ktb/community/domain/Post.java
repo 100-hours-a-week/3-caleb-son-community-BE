@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @Entity
 @Table(name = "posts",
@@ -49,6 +50,10 @@ public class Post {
     @OrderBy("sortOrder ASC")
     private List<PostImage> images = new ArrayList<>();
 
+    @Transient
+    @JsonProperty("isLiked")
+    private boolean isLiked = false;
+
     @PrePersist
     public void prePersist() {
         var now = LocalDateTime.now();
@@ -87,4 +92,6 @@ public class Post {
     public Integer getCommentCount() { return commentCount; }
     public void setCommentCount(Integer commentCount) { this.commentCount = commentCount; }
     public java.util.List<PostImage> getImages() { return images; }
+    public boolean isLiked() { return isLiked; }
+    public void setLiked(boolean liked) { isLiked = liked; }
 }

@@ -42,8 +42,10 @@ public class PostController {
 
     @GetMapping("/{postId}")
     public ResponseEntity<?> detail(@PathVariable Integer postId,
+                                    HttpServletRequest request,
                                     @RequestParam(defaultValue = "true") boolean increaseView) {
-        Post p = posts.get(postId, increaseView);
+        Integer userId = (Integer) request.getAttribute("userId");
+        Post p = posts.getWithLikeStatus(userId, postId, increaseView);
         return ResponseEntity.ok(new ApiResponse<>("get_post_detail_success", p));
     }
 
@@ -59,6 +61,10 @@ public class PostController {
     public ResponseEntity<?> uploadImage(HttpServletRequest request,
                                          @RequestParam("file") MultipartFile file) {
         Integer userId = (Integer) request.getAttribute("userId");
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ApiResponse<>("unauthorized", java.util.Map.of("error", "로그인이 필요합니다.")));
+        }
         try {
             // 파일 유효성 검사
             if (file.isEmpty()) {
@@ -104,16 +110,16 @@ public class PostController {
     public ResponseEntity<?> like(@PathVariable Integer postId,
                                   HttpServletRequest request) {
         Integer userId = (Integer) request.getAttribute("userId");
-        long count = posts.like(userId, postId);
-        return ResponseEntity.ok(new ApiResponse<>("like_success", java.util.Map.of("like", count)));
+        var result = posts.like(userId, postId);
+        return ResponseEntity.ok(new ApiResponse<>("like_toggle_success", result));
     }
 
     @DeleteMapping("/{postId}/like")
     public ResponseEntity<?> unlike(@PathVariable Integer postId,
                                     HttpServletRequest request) {
         Integer userId = (Integer) request.getAttribute("userId");
-        long count = posts.unlike(userId, postId);
-        return ResponseEntity.ok(new ApiResponse<>("unlike_success", java.util.Map.of("like", count)));
+        var result = posts.unlike(userId, postId);
+        return ResponseEntity.ok(new ApiResponse<>("unlike_success", result));
     }
 
     @GetMapping("/me/likes")

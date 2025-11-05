@@ -23,14 +23,34 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         
-        // 공개 API는 JWT 검증 생략
         String path = request.getRequestURI();
         String method = request.getMethod();
+        
+        // 공개 API는 JWT 검증 생략
         if (isPublicPath(path, method)) {
             filterChain.doFilter(request, response);
             return;
         }
+        
+        // 선택적 인증 API (토큰 있으면 userId 설정, 없으면 그냥 통과)
+        if (isOptionalAuthPath(path, method)) {
+            String authHeader = request.getHeader("Authorization");
+            if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                try {
+                    String token = authHeader.substring(7);
+                    if (jwtUtil.validateToken(token) && !jwtUtil.isTokenExpired(token) && jwtUtil.isAccessToken(token)) {
+                        Integer userId = jwtUtil.getUserIdFromToken(token);
+                        request.setAttribute("userId", userId);
+                    }
+                } catch (Exception e) {
+                    // 선택적 인증이므로 토큰 오류가 있어도 통과
+                }
+            }
+            filterChain.doFilter(request, response);
+            return;
+        }
 
+        // 필수 인증 API
         try {
             // Authorization 헤더에서 JWT 토큰 추출
             String authHeader = request.getHeader("Authorization");
@@ -79,8 +99,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return true;
         }
         
-        // 게시글 목록, 상세 조회는 공개
-        if (path.equals("/posts") || path.matches("/posts/\\d+")) {
+        // 게시글 목록만 공개 (상세는 선택적 인증)
+        if (path.equals("/posts") && method.equals("GET")) {
             return true;
         }
         
@@ -94,6 +114,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return true;
         }
         
+        return false;
+    }
+    
+    /**
+     * 선택적 인증 경로 확인 (토큰이 있으면 검증, 없으면 통과)
+     */
+    private boolean isOptionalAuthPath(String path, String method) {
+        // 게시글 상세 조회는 선택적 인증
+        if (path.matches("/posts/\\d+") && method.equals("GET")) {
+            return true;
+        }
         return false;
     }
 }
