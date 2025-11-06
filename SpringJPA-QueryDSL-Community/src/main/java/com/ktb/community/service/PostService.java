@@ -90,6 +90,7 @@ public class PostService {
         if (req.imageUrls() != null && !req.imageUrls().trim().isEmpty()) {
             var old = images.findByPostIdOrderBySort(postId);
             images.deleteAll(old);
+            images.flush();
             List<PostImage> list = new ArrayList<>();
             // imageUrls를 쉼표로 분리하여 개별 URL로 처리
             String[] imageUrls = req.imageUrls().split(",");
