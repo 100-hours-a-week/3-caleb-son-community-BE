@@ -51,6 +51,16 @@ public class UserService {
             throw new RuntimeException("현재 비밀번호가 일치하지 않습니다.");
         }
         
+        // 현재 비밀번호와 새 비밀번호가 같은지 확인
+        if (user.getPassword().equals(req.newPassword())) {
+            throw new RuntimeException("새 비밀번호는 현재 비밀번호와 달라야 합니다.");
+        }
+        
+        // 새 비밀번호 유효성 검사 (추가 검증)
+        if (req.newPassword().length() < 8) {
+            throw new RuntimeException("새 비밀번호는 최소 8자 이상이어야 합니다.");
+        }
+        
         // 새 비밀번호 설정
         user.setPassword(req.newPassword());
         
