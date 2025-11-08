@@ -118,6 +118,21 @@ public class UserController {
         }
     }
 
+    @DeleteMapping("/withdraw")
+    public ResponseEntity<?> withdrawUser(HttpServletRequest request) {
+        Integer userId = (Integer) request.getAttribute("userId");
+        try {
+            users.withdrawUser(userId);
+            return ResponseEntity.ok(new ApiResponse<>("withdraw_success", java.util.Map.of("userId", userId)));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest()
+                    .body(new ApiResponse<>("withdraw_failed", java.util.Map.of("error", e.getMessage())));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<>("withdraw_failed", java.util.Map.of("error", "회원 탈퇴 중 오류가 발생했습니다.")));
+        }
+    }
+
     @PostMapping("/refresh")
     public ResponseEntity<?> refreshToken(@RequestBody java.util.Map<String, String> request) {
         try {
