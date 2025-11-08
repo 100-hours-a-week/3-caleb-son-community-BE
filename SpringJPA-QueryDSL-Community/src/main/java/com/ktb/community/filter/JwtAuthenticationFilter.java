@@ -99,6 +99,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return true;
         }
         
+        // 회원가입용 공개 프로필 이미지 업로드
+        if (path.equals("/users/upload-profile-image-public") && method.equals("POST")) {
+            return true;
+        }
+        
         // 게시글 목록만 공개 (상세는 선택적 인증)
         if (path.equals("/posts") && method.equals("GET")) {
             return true;

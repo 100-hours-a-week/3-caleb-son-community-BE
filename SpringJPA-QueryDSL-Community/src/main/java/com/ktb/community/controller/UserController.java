@@ -72,6 +72,42 @@ public class UserController {
     public ResponseEntity<?> uploadProfileImage(HttpServletRequest request,
                                                @RequestParam("file") MultipartFile file) {
         Integer userId = (Integer) request.getAttribute("userId");
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ApiResponse<>("unauthorized", java.util.Map.of("error", "로그인이 필요합니다.")));
+        }
+        try {
+            // 파일 유효성 검사
+            if (file.isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(new ApiResponse<>("upload_failed", java.util.Map.of("error", "파일이 비어있습니다.")));
+            }
+            
+            // 이미지 파일 타입 검사
+            String contentType = file.getContentType();
+            if (contentType == null || !contentType.startsWith("image/")) {
+                return ResponseEntity.badRequest()
+                        .body(new ApiResponse<>("upload_failed", java.util.Map.of("error", "이미지 파일만 업로드 가능합니다.")));
+            }
+            
+            // 파일 크기 검사 (5MB 제한)
+            if (file.getSize() > 5 * 1024 * 1024) {
+                return ResponseEntity.badRequest()
+                        .body(new ApiResponse<>("upload_failed", java.util.Map.of("error", "파일 크기는 5MB 이하여야 합니다.")));
+            }
+            
+            // S3에 프로필 이미지 업로드
+            String imageUrl = s3Service.uploadProfileImage(file);
+            
+            return ResponseEntity.ok(new ApiResponse<>("upload_profile_image_success", java.util.Map.of("imageUrl", imageUrl)));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<>("upload_failed", java.util.Map.of("error", e.getMessage())));
+        }
+    }
+
+    @PostMapping("/upload-profile-image-public")
+    public ResponseEntity<?> uploadProfileImagePublic(@RequestParam("file") MultipartFile file) {
         try {
             // 파일 유효성 검사
             if (file.isEmpty()) {
