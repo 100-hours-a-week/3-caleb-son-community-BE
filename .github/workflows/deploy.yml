@@ -28,21 +28,34 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           
+          # 키 파일 확인 (디버깅)
+          echo "Checking key file..."
+          echo "File size: $(wc -c < ~/.ssh/deploy_key) bytes"
+          echo "First line: $(head -1 ~/.ssh/deploy_key)"
+          echo "Last line: $(tail -1 ~/.ssh/deploy_key)"
+          
           # SSH 키 형식 검증
-          if ! ssh-keygen -l -f ~/.ssh/deploy_key > /dev/null 2>&1; then
+          echo "Validating SSH key format..."
+          if ! ssh-keygen -l -f ~/.ssh/deploy_key 2>&1; then
             echo "Error: Invalid SSH private key format"
+            echo "Key file content (first 5 lines):"
+            head -5 ~/.ssh/deploy_key
             exit 1
           fi
           
           # Known hosts 설정
-          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null
-          ssh-keyscan -H ${{ secrets.PRIVATE_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+          echo "Setting up known hosts..."
+          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H ${{ secrets.PRIVATE_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
           
           # Public EC2 연결 테스트
           echo "Testing connection to Public EC2..."
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
             ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'Connection successful'" || {
             echo "Error: Failed to connect to Public EC2"
+            echo "Trying verbose mode for debugging..."
+            ssh -v -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+              ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'test'" 2>&1 | tail -20
             exit 1
           }
       
@@ -106,21 +119,34 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           
+          # 키 파일 확인 (디버깅)
+          echo "Checking key file..."
+          echo "File size: $(wc -c < ~/.ssh/deploy_key) bytes"
+          echo "First line: $(head -1 ~/.ssh/deploy_key)"
+          echo "Last line: $(tail -1 ~/.ssh/deploy_key)"
+          
           # SSH 키 형식 검증
-          if ! ssh-keygen -l -f ~/.ssh/deploy_key > /dev/null 2>&1; then
+          echo "Validating SSH key format..."
+          if ! ssh-keygen -l -f ~/.ssh/deploy_key 2>&1; then
             echo "Error: Invalid SSH private key format"
+            echo "Key file content (first 5 lines):"
+            head -5 ~/.ssh/deploy_key
             exit 1
           fi
           
           # Known hosts 설정
-          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null
-          ssh-keyscan -H ${{ secrets.PRIVATE_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+          echo "Setting up known hosts..."
+          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H ${{ secrets.PRIVATE_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
           
           # Public EC2 연결 테스트
           echo "Testing connection to Public EC2..."
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
             ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'Connection successful'" || {
             echo "Error: Failed to connect to Public EC2"
+            echo "Trying verbose mode for debugging..."
+            ssh -v -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+              ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'test'" 2>&1 | tail -20
             exit 1
           }
       
