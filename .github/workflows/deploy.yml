@@ -59,13 +59,31 @@ jobs:
             exit 1
           }
       
-      # docker-compose.yml을 Private EC2로 전송
-      - name: Transfer docker-compose.yml to Private EC2
+      # SSH 키를 Public EC2에 복사 (Private EC2 접근용)
+      - name: Copy SSH key to Public EC2
         run: |
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            -o ProxyJump=ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            ~/.ssh/deploy_key \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }}:~/.ssh/deploy_key
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} "chmod 600 ~/.ssh/deploy_key && mkdir -p ~/.ssh && chmod 700 ~/.ssh"
+      
+      # docker-compose.yml을 Public EC2로 먼저 전송 후 Private EC2로 전송
+      - name: Transfer docker-compose.yml to Public EC2
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            docker-compose.yml \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }}:~/
+      
+      - name: Transfer docker-compose.yml to Private EC2
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             docker-compose.yml \
             ubuntu@${{ secrets.PRIVATE_EC2_IP }}:${{ env.PROJECT_DIR }}/
+          rm docker-compose.yml
+          ENDSSH
       
       # nginx 설정을 Public EC2로 전송
       - name: Create nginx archive
@@ -165,48 +183,65 @@ jobs:
             --exclude='*.log' \
             --exclude='.gradle'
       
+      - name: Transfer backend archive to Public EC2
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            backend.tar.gz \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }}:~/
+      
       - name: Create remote directory
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ubuntu@${{ secrets.PRIVATE_EC2_IP }} \
             "mkdir -p ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE"
+          ENDSSH
       
       - name: Transfer backend files to Private EC2
         run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            -o ProxyJump=ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
             backend.tar.gz \
             ubuntu@${{ secrets.PRIVATE_EC2_IP }}:${{ env.PROJECT_DIR }}/3-caleb-son-community-BE/
+          rm backend.tar.gz
+          ENDSSH
       
       - name: Extract backend files
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
-            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << ENDSSH
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << ENDSSH2
           cd ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE
           tar -xzf backend.tar.gz
           rm backend.tar.gz
+          ENDSSH2
           ENDSSH
       
       - name: Stop backend container
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
-            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << ENDSSH
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << ENDSSH2
           cd ${{ env.PROJECT_DIR }}
           docker-compose stop backend || true
           docker-compose rm -f backend || true
+          ENDSSH2
           ENDSSH
       
       - name: Rebuild and start backend
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
-            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << ENDSSH
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << ENDSSH2
           cd ${{ env.PROJECT_DIR }}
           docker-compose build backend
           docker-compose up -d backend
+          ENDSSH2
           ENDSSH
       
       - name: Wait for backend to start
@@ -215,16 +250,14 @@ jobs:
       - name: Check backend status
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
-            ubuntu@${{ secrets.PRIVATE_EC2_IP }} \
-            "cd ${{ env.PROJECT_DIR }} && docker-compose ps backend"
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ubuntu@${{ secrets.PRIVATE_EC2_IP }} 'cd ${{ env.PROJECT_DIR }} && docker-compose ps backend'"
       
       - name: Check backend logs
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
-            ubuntu@${{ secrets.PRIVATE_EC2_IP }} \
-            "cd ${{ env.PROJECT_DIR }} && docker-compose logs --tail=50 backend"
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ubuntu@${{ secrets.PRIVATE_EC2_IP }} 'cd ${{ env.PROJECT_DIR }} && docker-compose logs --tail=50 backend'"
       
       - name: Cleanup
         if: always()
