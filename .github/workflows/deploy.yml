@@ -22,9 +22,29 @@ jobs:
       - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          
+          # SSH 키 생성 및 권한 설정
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts
+          
+          # SSH 키 형식 검증
+          if ! ssh-keygen -l -f ~/.ssh/deploy_key > /dev/null 2>&1; then
+            echo "Error: Invalid SSH private key format"
+            exit 1
+          fi
+          
+          # Known hosts 설정
+          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H ${{ secrets.PRIVATE_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+          
+          # Public EC2 연결 테스트
+          echo "Testing connection to Public EC2..."
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'Connection successful'" || {
+            echo "Error: Failed to connect to Public EC2"
+            exit 1
+          }
       
       # docker-compose.yml을 Private EC2로 전송
       - name: Transfer docker-compose.yml to Private EC2
@@ -47,7 +67,7 @@ jobs:
       - name: Extract and deploy nginx
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << 'ENDSSH'
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
           cd ${{ env.NGINX_DIR }}
           tar -xzf nginx.tar.gz
           rm nginx.tar.gz
@@ -80,9 +100,29 @@ jobs:
       - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          
+          # SSH 키 생성 및 권한 설정
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts
+          
+          # SSH 키 형식 검증
+          if ! ssh-keygen -l -f ~/.ssh/deploy_key > /dev/null 2>&1; then
+            echo "Error: Invalid SSH private key format"
+            exit 1
+          fi
+          
+          # Known hosts 설정
+          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H ${{ secrets.PRIVATE_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+          
+          # Public EC2 연결 테스트
+          echo "Testing connection to Public EC2..."
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'Connection successful'" || {
+            echo "Error: Failed to connect to Public EC2"
+            exit 1
+          }
       
       - name: Create backend archive
         run: |
@@ -117,7 +157,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
-            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << 'ENDSSH'
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << ENDSSH
           cd ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE
           tar -xzf backend.tar.gz
           rm backend.tar.gz
@@ -127,7 +167,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
-            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << 'ENDSSH'
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << ENDSSH
           cd ${{ env.PROJECT_DIR }}
           docker-compose stop backend || true
           docker-compose rm -f backend || true
@@ -137,7 +177,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
-            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << 'ENDSSH'
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << ENDSSH
           cd ${{ env.PROJECT_DIR }}
           docker-compose build backend
           docker-compose up -d backend
