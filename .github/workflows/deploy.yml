@@ -1,0 +1,175 @@
+name: Deploy Backend to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  PROJECT_DIR: ~/community-project
+  NGINX_DIR: ~/nginx-proxy
+
+jobs:
+  deploy-infrastructure:
+    name: Deploy Infrastructure (docker-compose.yml & nginx)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts
+      
+      # docker-compose.yml을 Private EC2로 전송
+      - name: Transfer docker-compose.yml to Private EC2
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            -o ProxyJump=ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            docker-compose.yml \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }}:${{ env.PROJECT_DIR }}/
+      
+      # nginx 설정을 Public EC2로 전송
+      - name: Create nginx archive
+        run: tar -czf nginx.tar.gz nginx/
+      
+      - name: Transfer nginx to Public EC2
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            nginx.tar.gz \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }}:${{ env.NGINX_DIR }}/
+      
+      - name: Extract and deploy nginx
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << 'ENDSSH'
+          cd ${{ env.NGINX_DIR }}
+          tar -xzf nginx.tar.gz
+          rm nginx.tar.gz
+          
+          # Private EC2 IP를 nginx.conf에 설정
+          sed -i "s/server [0-9.]*:8080/server ${{ secrets.PRIVATE_EC2_IP }}:8080/g" nginx/nginx.conf
+          sed -i "s/server [0-9.]*:3003/server ${{ secrets.PRIVATE_EC2_IP }}:3003/g" nginx/nginx.conf
+          
+          # Nginx 재시작
+          cd nginx
+          docker-compose down || true
+          docker-compose up -d
+          ENDSSH
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
+          rm -f nginx.tar.gz
+
+  deploy-backend:
+    name: Deploy Backend to Private EC2
+    runs-on: ubuntu-latest
+    needs: deploy-infrastructure
+    
+    steps:
+      - name: Checkout Backend Code
+        uses: actions/checkout@v4
+      
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts
+      
+      - name: Create backend archive
+        run: |
+          tar -czf backend.tar.gz \
+            Dockerfile \
+            build.gradle.kts \
+            settings.gradle.kts \
+            gradle/ \
+            src/ \
+            .dockerignore \
+            --exclude='.git' \
+            --exclude='build' \
+            --exclude='bin' \
+            --exclude='*.log' \
+            --exclude='.gradle'
+      
+      - name: Create remote directory
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} \
+            "mkdir -p ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE"
+      
+      - name: Transfer backend files to Private EC2
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            -o ProxyJump=ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            backend.tar.gz \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }}:${{ env.PROJECT_DIR }}/3-caleb-son-community-BE/
+      
+      - name: Extract backend files
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << 'ENDSSH'
+          cd ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE
+          tar -xzf backend.tar.gz
+          rm backend.tar.gz
+          ENDSSH
+      
+      - name: Stop backend container
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << 'ENDSSH'
+          cd ${{ env.PROJECT_DIR }}
+          docker-compose stop backend || true
+          docker-compose rm -f backend || true
+          ENDSSH
+      
+      - name: Rebuild and start backend
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << 'ENDSSH'
+          cd ${{ env.PROJECT_DIR }}
+          docker-compose build backend
+          docker-compose up -d backend
+          ENDSSH
+      
+      - name: Wait for backend to start
+        run: sleep 30
+      
+      - name: Check backend status
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} \
+            "cd ${{ env.PROJECT_DIR }} && docker-compose ps backend"
+      
+      - name: Check backend logs
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            -J ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} \
+            "cd ${{ env.PROJECT_DIR }} && docker-compose logs --tail=50 backend"
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
+          rm -f backend.tar.gz
+      
+      - name: Deployment Summary
+        run: |
+          echo "========================================="
+          echo "Backend Deployment Completed!"
+          echo "========================================="
+          echo "Backend API: http://${{ secrets.PUBLIC_EC2_IP }}/api"
+          echo "Nginx: http://${{ secrets.PUBLIC_EC2_IP }}"

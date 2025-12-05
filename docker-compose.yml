@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: community_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_here
+      MYSQL_DATABASE: community_db
+      MYSQL_USER: community_user
+      MYSQL_PASSWORD: wjdakffhrjsgml
+      TZ: Asia/Seoul
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    networks:
+      - community_network
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "community_user", "-pGun1996gun!"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./3-caleb-son-community-BE
+      dockerfile: Dockerfile
+    container_name: community_backend
+    restart: always
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/community_db?useSSL=false&serverTimezone=Asia/Seoul&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: community_user
+      SPRING_DATASOURCE_PASSWORD: wjdakffhrjsgml
+      JWT_SECRET: ktb-community-secret-key-for-jwt-token-generation-and-validation
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - community_network
+    volumes:
+      - ./logs/backend:/home/ubuntu/logs
+
+  frontend:
+    build:
+      context: ./3-caleb-son-community-FE
+      dockerfile: Dockerfile
+    container_name: community_frontend
+    restart: always
+    environment:
+      PORT: 3003
+      BACKEND_URL: http://backend:8080
+    ports:
+      - "3003:3003"
+    depends_on:
+      - backend
+    networks:
+      - community_network
+
+networks:
+  community_network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
