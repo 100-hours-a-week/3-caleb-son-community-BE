@@ -235,17 +235,17 @@ jobs:
       - name: Create backend archive
         run: |
           tar -czf backend.tar.gz \
+            --exclude='.git' \
+            --exclude='build' \
+            --exclude='bin' \
+            --exclude='*.log' \
+            --exclude='.gradle' \
             Dockerfile \
             build.gradle.kts \
             settings.gradle.kts \
             gradle/ \
             src/ \
-            .dockerignore \
-            --exclude='.git' \
-            --exclude='build' \
-            --exclude='bin' \
-            --exclude='*.log' \
-            --exclude='.gradle'
+            .dockerignore
       
       - name: Transfer backend archive to Public EC2
         run: |
