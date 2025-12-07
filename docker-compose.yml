@@ -46,9 +46,7 @@ services:
       - ./logs/backend:/home/ubuntu/logs
 
   frontend:
-    build:
-      context: ./3-caleb-son-community-FE
-      dockerfile: Dockerfile
+    image: community-project-frontend:latest
     container_name: community_frontend
     restart: always
     environment:
