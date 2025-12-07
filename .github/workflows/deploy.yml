@@ -243,30 +243,31 @@ jobs:
             backend-image.tar \
             ubuntu@${{ secrets.PUBLIC_EC2_IP }}:~/
       
-      - name: Transfer Docker image to Private EC2
+      - name: Transfer Docker image and deploy on Private EC2
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
-          # Ensure remote directory exists
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << 'ENDSSH'
+          set -e  # Exit on any error
+          
+          echo "=== Step 1: Ensure remote directory exists ==="
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ubuntu@${{ secrets.PRIVATE_EC2_IP }} \
             "mkdir -p ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE"
           
-          # Transfer the saved Docker image
+          echo "=== Step 2: Transfer Docker image to Private EC2 ==="
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ~/backend-image.tar \
             ubuntu@${{ secrets.PRIVATE_EC2_IP }}:${{ env.PROJECT_DIR }}/3-caleb-son-community-BE/
           
-          # Cleanup on Public EC2
-          rm -f ~/backend-image.tar
-          ENDSSH
-      
-      - name: Load and deploy backend on Private EC2
-        run: |
+          echo "=== Step 3: Verify file transfer ==="
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} \
+            "ls -lh ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE/backend-image.tar"
+          
+          echo "=== Step 4: Load and deploy on Private EC2 ==="
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << ENDSSH2
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << 'ENDSSH2'
+          set -e
           cd ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE
           
           # Load the Docker image
@@ -274,19 +275,32 @@ jobs:
           docker load -i backend-image.tar
           
           # Tag it for docker-compose
+          echo "Tagging image..."
           docker tag community-backend:latest community-project-backend:latest
           
           # Cleanup the tar file
+          echo "Cleaning up tar file..."
           rm -f backend-image.tar
           
           # Stop existing backend container
+          echo "Stopping existing backend..."
           cd ${{ env.PROJECT_DIR }}
           docker-compose stop backend || true
           docker-compose rm -f backend || true
           
           # Start the backend with the pre-built image
+          echo "Starting backend..."
           docker-compose up -d backend
+          
+          # Show status
+          echo "Backend status:"
+          docker-compose ps backend
           ENDSSH2
+          
+          echo "=== Step 5: Cleanup on Public EC2 ==="
+          rm -f ~/backend-image.tar
+          
+          echo "=== Deployment completed successfully ==="
           ENDSSH
       
       - name: Wait for backend to start
