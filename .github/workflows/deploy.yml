@@ -26,6 +26,14 @@ jobs:
           
           # SSH 키 생성 및 권한 설정
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          
+          # 키 파일 정리: BEGIN/END 사이의 내용만 추출, 불필요한 문자 제거
+          sed -n '/-----BEGIN RSA PRIVATE KEY-----/,/-----END RSA PRIVATE KEY-----/p' ~/.ssh/deploy_key | \
+            grep -v 'file://' | \
+            sed 's/\r$//' | \
+            sed '/^$/d' > ~/.ssh/deploy_key.clean
+          mv ~/.ssh/deploy_key.clean ~/.ssh/deploy_key
+          
           chmod 600 ~/.ssh/deploy_key
           
           # 키 파일 확인 (디버깅)
@@ -50,14 +58,38 @@ jobs:
           
           # Public EC2 연결 테스트
           echo "Testing connection to Public EC2..."
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-            ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'Connection successful'" || {
-            echo "Error: Failed to connect to Public EC2"
-            echo "Trying verbose mode for debugging..."
-            ssh -v -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-              ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'test'" 2>&1 | tail -20
-            exit 1
-          }
+          echo "Target IP: ${{ secrets.PUBLIC_EC2_IP }}"
+          echo "Testing network connectivity..."
+          
+          # 포트 연결 테스트 (타임아웃 5초)
+          timeout 5 bash -c "</dev/tcp/${{ secrets.PUBLIC_EC2_IP }}/22" 2>/dev/null && echo "Port 22 is reachable" || echo "Warning: Port 22 may not be reachable"
+          
+          # SSH 연결 시도 (타임아웃 증가 및 재시도)
+          for i in {1..3}; do
+            echo "Connection attempt $i/3..."
+            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 \
+              ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'Connection successful'" 2>&1; then
+              echo "✅ Connection successful on attempt $i"
+              break
+            else
+              if [ $i -eq 3 ]; then
+                echo "❌ Failed to connect after 3 attempts"
+                echo "Checking connection details..."
+                echo "Public EC2 IP: ${{ secrets.PUBLIC_EC2_IP }}"
+                echo "Trying verbose mode..."
+                ssh -v -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+                  ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'test'" 2>&1 | tail -30
+                echo ""
+                echo "⚠️  Possible issues:"
+                echo "   1. EC2 Security Group may not allow GitHub Actions IP addresses"
+                echo "   2. EC2 instance may be stopped or unreachable"
+                echo "   3. Public IP address may have changed"
+                exit 1
+              fi
+              echo "Waiting 5 seconds before retry..."
+              sleep 5
+            fi
+          done
       
       # SSH 키를 Public EC2에 복사 (Private EC2 접근용)
       - name: Copy SSH key to Public EC2
@@ -135,6 +167,14 @@ jobs:
           
           # SSH 키 생성 및 권한 설정
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          
+          # 키 파일 정리: BEGIN/END 사이의 내용만 추출, 불필요한 문자 제거
+          sed -n '/-----BEGIN RSA PRIVATE KEY-----/,/-----END RSA PRIVATE KEY-----/p' ~/.ssh/deploy_key | \
+            grep -v 'file://' | \
+            sed 's/\r$//' | \
+            sed '/^$/d' > ~/.ssh/deploy_key.clean
+          mv ~/.ssh/deploy_key.clean ~/.ssh/deploy_key
+          
           chmod 600 ~/.ssh/deploy_key
           
           # 키 파일 확인 (디버깅)
@@ -159,14 +199,38 @@ jobs:
           
           # Public EC2 연결 테스트
           echo "Testing connection to Public EC2..."
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-            ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'Connection successful'" || {
-            echo "Error: Failed to connect to Public EC2"
-            echo "Trying verbose mode for debugging..."
-            ssh -v -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-              ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'test'" 2>&1 | tail -20
-            exit 1
-          }
+          echo "Target IP: ${{ secrets.PUBLIC_EC2_IP }}"
+          echo "Testing network connectivity..."
+          
+          # 포트 연결 테스트 (타임아웃 5초)
+          timeout 5 bash -c "</dev/tcp/${{ secrets.PUBLIC_EC2_IP }}/22" 2>/dev/null && echo "Port 22 is reachable" || echo "Warning: Port 22 may not be reachable"
+          
+          # SSH 연결 시도 (타임아웃 증가 및 재시도)
+          for i in {1..3}; do
+            echo "Connection attempt $i/3..."
+            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 \
+              ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'Connection successful'" 2>&1; then
+              echo "✅ Connection successful on attempt $i"
+              break
+            else
+              if [ $i -eq 3 ]; then
+                echo "❌ Failed to connect after 3 attempts"
+                echo "Checking connection details..."
+                echo "Public EC2 IP: ${{ secrets.PUBLIC_EC2_IP }}"
+                echo "Trying verbose mode..."
+                ssh -v -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+                  ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'test'" 2>&1 | tail -30
+                echo ""
+                echo "⚠️  Possible issues:"
+                echo "   1. EC2 Security Group may not allow GitHub Actions IP addresses"
+                echo "   2. EC2 instance may be stopped or unreachable"
+                echo "   3. Public IP address may have changed"
+                exit 1
+              fi
+              echo "Waiting 5 seconds before retry..."
+              sleep 5
+            fi
+          done
       
       - name: Create backend archive
         run: |
