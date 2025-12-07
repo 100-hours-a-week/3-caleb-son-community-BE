@@ -232,66 +232,16 @@ jobs:
             fi
           done
       
-      - name: Create backend archive
+      - name: Build Docker image in GitHub Actions
         run: |
-          tar -czf backend.tar.gz \
-            --exclude='.git' \
-            --exclude='build' \
-            --exclude='bin' \
-            --exclude='*.log' \
-            --exclude='.gradle' \
-            Dockerfile \
-            build.gradle.kts \
-            settings.gradle.kts \
-            gradle/ \
-            src/ \
-            .dockerignore
-      
-      - name: Transfer backend archive to Public EC2
-        run: |
-          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            backend.tar.gz \
-            ubuntu@${{ secrets.PUBLIC_EC2_IP }}:~/
-      
-      - name: Create remote directory
-        run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ubuntu@${{ secrets.PRIVATE_EC2_IP }} \
-            "mkdir -p ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE"
-          ENDSSH
-      
-      - name: Transfer backend files to Public EC2 temp directory
-        run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
-          mkdir -p ~/backend-build
-          ENDSSH
-          
-          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            backend.tar.gz \
-            ubuntu@${{ secrets.PUBLIC_EC2_IP }}:~/backend-build/
-      
-      - name: Extract and build backend image on Public EC2
-        run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
-          cd ~/backend-build
-          tar -xzf backend.tar.gz
-          
-          # Build the Docker image on Public EC2 (has internet access)
-          echo "Building backend Docker image..."
           docker build -t community-backend:latest .
-          
-          # Save the image to a tar file
-          echo "Saving Docker image..."
           docker save -o backend-image.tar community-backend:latest
-          
-          # Cleanup extracted files to save space
-          rm backend.tar.gz
-          rm -rf Dockerfile build.gradle.kts settings.gradle.kts gradle src .dockerignore
-          ENDSSH
+      
+      - name: Transfer Docker image to Public EC2
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            backend-image.tar \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }}:~/
       
       - name: Transfer Docker image to Private EC2
         run: |
@@ -304,11 +254,11 @@ jobs:
           
           # Transfer the saved Docker image
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ~/backend-build/backend-image.tar \
+            ~/backend-image.tar \
             ubuntu@${{ secrets.PRIVATE_EC2_IP }}:${{ env.PROJECT_DIR }}/3-caleb-son-community-BE/
           
           # Cleanup on Public EC2
-          rm -rf ~/backend-build
+          rm -f ~/backend-image.tar
           ENDSSH
       
       - name: Load and deploy backend on Private EC2
@@ -323,11 +273,11 @@ jobs:
           echo "Loading Docker image..."
           docker load -i backend-image.tar
           
-          # Tag it for docker-compose (docker-compose expects community-project-backend)
+          # Tag it for docker-compose
           docker tag community-backend:latest community-project-backend:latest
           
           # Cleanup the tar file
-          rm backend-image.tar
+          rm -f backend-image.tar
           
           # Stop existing backend container
           cd ${{ env.PROJECT_DIR }}
@@ -358,7 +308,7 @@ jobs:
         if: always()
         run: |
           rm -f ~/.ssh/deploy_key
-          rm -f backend.tar.gz
+          rm -f backend-image.tar
       
       - name: Deployment Summary
         run: |
