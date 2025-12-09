@@ -10,8 +10,6 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletRequest;
 
-import java.util.List;
-
 @RestController
 @RequestMapping("/posts/{postId}/comments")
 public class CommentController {
@@ -19,10 +17,14 @@ public class CommentController {
     public CommentController(CommentService comments) { this.comments = comments; }
 
     @GetMapping
-    public ResponseEntity<?> list(@PathVariable Integer postId) {
-        List<Comment> list = comments.list(postId);
+    public ResponseEntity<?> list(@PathVariable Integer postId,
+                                 @RequestParam(defaultValue = "0") int page,
+                                 @RequestParam(defaultValue = "5") int size) {
+        org.springframework.data.domain.Page<Comment> result = comments.listWithPagination(postId, page, size);
         return ResponseEntity.ok(new ApiResponse<>("get_comments_success",
-                java.util.Map.of("comments", list, "pagination", java.util.Map.of("total_count", list.size()))));
+                java.util.Map.of("comments", result.getContent(), 
+                                "pagination", java.util.Map.of("total_count", result.getTotalElements(),
+                                                               "has_more", result.hasNext()))));
     }
 
     @PostMapping

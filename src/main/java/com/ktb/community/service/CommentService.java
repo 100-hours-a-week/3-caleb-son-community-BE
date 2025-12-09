@@ -5,6 +5,9 @@ import com.ktb.community.dto.CommentDtos.*;
 import com.ktb.community.exception.ApiException;
 import com.ktb.community.exception.ErrorCode;
 import com.ktb.community.repository.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +26,12 @@ public class CommentService {
     public List<Comment> list(Integer postId) {
         posts.findActiveById(postId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "post_not_found"));
         return comments.findActiveByPostId(postId);
+    }
+
+    public Page<Comment> listWithPagination(Integer postId, int page, int size) {
+        posts.findActiveById(postId).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "post_not_found"));
+        Pageable pageable = PageRequest.of(page, size);
+        return comments.findActiveByPostIdWithPagination(postId, pageable);
     }
 
     @Transactional
