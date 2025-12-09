@@ -26,9 +26,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     String path = request.getRequestURI();
     String method = request.getMethod();
 
-    // 디버깅용 로그
-    System.out.println("JwtFilter - Path: " + path + ", Method: " + method);
-
     // 공개 API는 JWT 검증 생략
     if (isPublicPath(path, method)) {
       filterChain.doFilter(request, response);
@@ -95,33 +92,30 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
    * 공개 API 경로 확인
    */
   private boolean isPublicPath(String path, String method) {
-    // 로그인, 회원가입, 토큰 갱신은 공개 (명시적 포함)
-    if (path.equals("/users/login") || path.equals("/api/users/login") ||
-        path.equals("/users/signup") || path.equals("/api/users/signup") ||
-        path.equals("/users/refresh") || path.equals("/api/users/refresh")) {
+    // 로그인, 회원가입, 토큰 갱신은 공개
+    if (path.equals("/users/login") ||
+        path.equals("/users/signup") ||
+        path.equals("/users/refresh")) {
       return true;
     }
 
     // 회원가입용 공개 프로필 이미지 업로드
-    if ((path.equals("/users/upload-profile-image-public") || path.equals("/api/users/upload-profile-image-public"))
-        && method.equals("POST")) {
+    if (path.equals("/users/upload-profile-image-public") && method.equals("POST")) {
       return true;
     }
 
     // 게시글 목록만 공개 (상세는 선택적 인증)
-    if ((path.equals("/posts") || path.equals("/api/posts"))
-        && method.equals("GET")) {
+    if (path.equals("/posts") && method.equals("GET")) {
       return true;
     }
 
     // 댓글 목록 조회는 공개 (GET 요청만)
-    if ((path.matches("/posts/\\d+/comments") || path.matches("/api/posts/\\d+/comments"))
-        && method.equals("GET")) {
+    if (path.matches("/posts/\\d+/comments") && method.equals("GET")) {
       return true;
     }
 
     // Privacy 페이지는 공개
-    if (path.startsWith("/privacy") || path.startsWith("/api/privacy")) {
+    if (path.startsWith("/privacy")) {
       return true;
     }
 

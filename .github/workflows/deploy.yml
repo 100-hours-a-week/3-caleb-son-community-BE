@@ -8,10 +8,11 @@ on:
 
 env:
   PROJECT_DIR: ~/community-project
+  NGINX_DIR: ~/nginx-proxy
 
 jobs:
-  deploy-backend:
-    name: Build & Deploy Backend
+  deploy-infrastructure:
+    name: Deploy Infrastructure (docker-compose.yml & nginx)
     runs-on: ubuntu-latest
     
     steps:
@@ -21,56 +22,312 @@ jobs:
       - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          
+          # SSH 키 생성 및 권한 설정
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          
+          # 키 파일 정리: BEGIN/END 사이의 내용만 추출, 불필요한 문자 제거
+          sed -n '/-----BEGIN RSA PRIVATE KEY-----/,/-----END RSA PRIVATE KEY-----/p' ~/.ssh/deploy_key | \
+            grep -v 'file://' | \
+            sed 's/\r$//' | \
+            sed '/^$/d' > ~/.ssh/deploy_key.clean
+          mv ~/.ssh/deploy_key.clean ~/.ssh/deploy_key
+          
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null
-          ssh-keyscan -H ${{ secrets.PRIVATE_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null
-
-      - name: Build Docker Image
+          
+          # 키 파일 확인 (디버깅)
+          echo "Checking key file..."
+          echo "File size: $(wc -c < ~/.ssh/deploy_key) bytes"
+          echo "First line: $(head -1 ~/.ssh/deploy_key)"
+          echo "Last line: $(tail -1 ~/.ssh/deploy_key)"
+          
+          # SSH 키 형식 검증
+          echo "Validating SSH key format..."
+          if ! ssh-keygen -l -f ~/.ssh/deploy_key 2>&1; then
+            echo "Error: Invalid SSH private key format"
+            echo "Key file content (first 5 lines):"
+            head -5 ~/.ssh/deploy_key
+            exit 1
+          fi
+          
+          # Known hosts 설정
+          echo "Setting up known hosts..."
+          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H ${{ secrets.PRIVATE_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          # Public EC2 연결 테스트
+          echo "Testing connection to Public EC2..."
+          echo "Target IP: ${{ secrets.PUBLIC_EC2_IP }}"
+          echo "Testing network connectivity..."
+          
+          # 포트 연결 테스트 (타임아웃 5초)
+          timeout 5 bash -c "</dev/tcp/${{ secrets.PUBLIC_EC2_IP }}/22" 2>/dev/null && echo "Port 22 is reachable" || echo "Warning: Port 22 may not be reachable"
+          
+          # SSH 연결 시도 (타임아웃 증가 및 재시도)
+          for i in {1..3}; do
+            echo "Connection attempt $i/3..."
+            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 \
+              ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'Connection successful'" 2>&1; then
+              echo "✅ Connection successful on attempt $i"
+              break
+            else
+              if [ $i -eq 3 ]; then
+                echo "❌ Failed to connect after 3 attempts"
+                echo "Checking connection details..."
+                echo "Public EC2 IP: ${{ secrets.PUBLIC_EC2_IP }}"
+                echo "Trying verbose mode..."
+                ssh -v -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+                  ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'test'" 2>&1 | tail -30
+                echo ""
+                echo "⚠️  Possible issues:"
+                echo "   1. EC2 Security Group may not allow GitHub Actions IP addresses"
+                echo "   2. EC2 instance may be stopped or unreachable"
+                echo "   3. Public IP address may have changed"
+                exit 1
+              fi
+              echo "Waiting 5 seconds before retry..."
+              sleep 5
+            fi
+          done
+      
+      # SSH 키를 Public EC2에 복사 (Private EC2 접근용)
+      - name: Copy SSH key to Public EC2
         run: |
-          # Build explicitly for amd64 (EC2 architecture)
-          docker build --platform linux/amd64 -t community-backend:latest .
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ~/.ssh/deploy_key \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }}:~/.ssh/deploy_key
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} "chmod 600 ~/.ssh/deploy_key && mkdir -p ~/.ssh && chmod 700 ~/.ssh"
+      
+      # docker-compose.yml을 Public EC2로 먼저 전송 후 Private EC2로 전송
+      - name: Transfer docker-compose.yml to Public EC2
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            docker-compose.yml \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }}:~/
+      
+      - name: Transfer docker-compose.yml to Private EC2
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            docker-compose.yml \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }}:${{ env.PROJECT_DIR }}/
+          rm docker-compose.yml
+          ENDSSH
+      
+      # nginx 설정을 Public EC2로 전송
+      - name: Create nginx archive
+        run: tar -czf nginx.tar.gz nginx/
+      
+      - name: Transfer nginx to Public EC2
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            nginx.tar.gz \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }}:${{ env.NGINX_DIR }}/
+      
+      - name: Extract and deploy nginx
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << ENDSSH
+          cd ${{ env.NGINX_DIR }}
+          tar -xzf nginx.tar.gz
+          rm nginx.tar.gz
+          
+          # Private EC2 IP를 nginx.conf에 설정
+          sed -i "s/server [0-9.]*:8080/server ${{ secrets.PRIVATE_EC2_IP }}:8080/g" nginx/nginx.conf
+          sed -i "s/server [0-9.]*:3003/server ${{ secrets.PRIVATE_EC2_IP }}:3003/g" nginx/nginx.conf
+          
+          # Nginx 재시작
+          cd nginx
+          docker-compose down || true
+          docker-compose up -d
+          ENDSSH
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
+          rm -f nginx.tar.gz
+
+  deploy-backend:
+    name: Deploy Backend to Private EC2
+    runs-on: ubuntu-latest
+    needs: deploy-infrastructure
+    
+    steps:
+      - name: Checkout Backend Code
+        uses: actions/checkout@v4
+      
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          
+          # SSH 키 생성 및 권한 설정
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          
+          # 키 파일 정리: BEGIN/END 사이의 내용만 추출, 불필요한 문자 제거
+          sed -n '/-----BEGIN RSA PRIVATE KEY-----/,/-----END RSA PRIVATE KEY-----/p' ~/.ssh/deploy_key | \
+            grep -v 'file://' | \
+            sed 's/\r$//' | \
+            sed '/^$/d' > ~/.ssh/deploy_key.clean
+          mv ~/.ssh/deploy_key.clean ~/.ssh/deploy_key
+          
+          chmod 600 ~/.ssh/deploy_key
+          
+          # 키 파일 확인 (디버깅)
+          echo "Checking key file..."
+          echo "File size: $(wc -c < ~/.ssh/deploy_key) bytes"
+          echo "First line: $(head -1 ~/.ssh/deploy_key)"
+          echo "Last line: $(tail -1 ~/.ssh/deploy_key)"
+          
+          # SSH 키 형식 검증
+          echo "Validating SSH key format..."
+          if ! ssh-keygen -l -f ~/.ssh/deploy_key 2>&1; then
+            echo "Error: Invalid SSH private key format"
+            echo "Key file content (first 5 lines):"
+            head -5 ~/.ssh/deploy_key
+            exit 1
+          fi
+          
+          # Known hosts 설정
+          echo "Setting up known hosts..."
+          ssh-keyscan -H ${{ secrets.PUBLIC_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H ${{ secrets.PRIVATE_EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          # Public EC2 연결 테스트
+          echo "Testing connection to Public EC2..."
+          echo "Target IP: ${{ secrets.PUBLIC_EC2_IP }}"
+          echo "Testing network connectivity..."
+          
+          # 포트 연결 테스트 (타임아웃 5초)
+          timeout 5 bash -c "</dev/tcp/${{ secrets.PUBLIC_EC2_IP }}/22" 2>/dev/null && echo "Port 22 is reachable" || echo "Warning: Port 22 may not be reachable"
+          
+          # SSH 연결 시도 (타임아웃 증가 및 재시도)
+          for i in {1..3}; do
+            echo "Connection attempt $i/3..."
+            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 \
+              ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'Connection successful'" 2>&1; then
+              echo "✅ Connection successful on attempt $i"
+              break
+            else
+              if [ $i -eq 3 ]; then
+                echo "❌ Failed to connect after 3 attempts"
+                echo "Checking connection details..."
+                echo "Public EC2 IP: ${{ secrets.PUBLIC_EC2_IP }}"
+                echo "Trying verbose mode..."
+                ssh -v -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+                  ubuntu@${{ secrets.PUBLIC_EC2_IP }} "echo 'test'" 2>&1 | tail -30
+                echo ""
+                echo "⚠️  Possible issues:"
+                echo "   1. EC2 Security Group may not allow GitHub Actions IP addresses"
+                echo "   2. EC2 instance may be stopped or unreachable"
+                echo "   3. Public IP address may have changed"
+                exit 1
+              fi
+              echo "Waiting 5 seconds before retry..."
+              sleep 5
+            fi
+          done
+      
+      - name: Build Docker image in GitHub Actions
+        run: |
+          docker build -t community-backend:latest .
           docker save -o backend-image.tar community-backend:latest
       
-      - name: Transfer Image to Public EC2
+      - name: Transfer Docker image to Public EC2
         run: |
-          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no backend-image.tar ubuntu@${{ secrets.PUBLIC_EC2_IP }}:~/
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            backend-image.tar \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }}:~/
       
-      - name: Deploy to Private EC2
+      - name: Transfer Docker image and deploy on Private EC2
         run: |
-          # SSH Jump Host Command
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ubuntu@${{ secrets.PUBLIC_EC2_IP }} << 'EOF'
-            set -e
-            
-            # Step 1: Ensure directory exists on Private EC2
-            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ubuntu@${{ secrets.PRIVATE_EC2_IP }} \
-              "mkdir -p ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE"
-            
-            # Step 2: Transfer Image to Private EC2
-            echo "Transerring image to Private EC2..."
-            scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ~/backend-image.tar \
-              ubuntu@${{ secrets.PRIVATE_EC2_IP }}:${{ env.PROJECT_DIR }}/3-caleb-son-community-BE/
-            
-            # Step 3: Deploy on Private EC2
-            echo "Deploying on Private EC2..."
-            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ubuntu@${{ secrets.PRIVATE_EC2_IP }} << 'INNER_EOF'
-              set -e
-              cd ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE
-              
-              # Load & Tag Image
-              docker load -i backend-image.tar
-              # IMPORTANT: Tag the image to match docker-compose.yml expectation
-              docker tag community-backend:latest community-project-backend:latest
-              rm backend-image.tar
-              
-              # Restart Service
-              cd ${{ env.PROJECT_DIR }}
-              docker-compose stop backend || true
-              docker-compose rm -f backend || true
-              docker-compose up -d backend
-            INNER_EOF
-            
-            # Cleanup on Public EC2
-            rm ~/backend-image.tar
-            echo "Deployment Complete!"
-          EOF
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} << 'ENDSSH'
+          set -e  # Exit on any error
+          
+          echo "=== Step 1: Ensure remote directory exists ==="
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} \
+            "mkdir -p ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE"
+          
+          echo "=== Step 2: Transfer Docker image to Private EC2 ==="
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ~/backend-image.tar \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }}:${{ env.PROJECT_DIR }}/3-caleb-son-community-BE/
+          
+          echo "=== Step 3: Verify file transfer ==="
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} \
+            "ls -lh ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE/backend-image.tar"
+          
+          echo "=== Step 4: Load and deploy on Private EC2 ==="
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PRIVATE_EC2_IP }} << 'ENDSSH2'
+          set -e
+          cd ${{ env.PROJECT_DIR }}/3-caleb-son-community-BE
+          
+          # Load the Docker image
+          echo "Loading Docker image..."
+          docker load -i backend-image.tar
+          
+          # Tag it for docker-compose
+          echo "Tagging image..."
+          docker tag community-backend:latest community-project-backend:latest
+          
+          # Cleanup the tar file
+          echo "Cleaning up tar file..."
+          rm -f backend-image.tar
+          
+          # Stop existing backend container
+          echo "Stopping existing backend..."
+          cd ${{ env.PROJECT_DIR }}
+          docker-compose stop backend || true
+          docker-compose rm -f backend || true
+          
+          # Start the backend with the pre-built image
+          echo "Starting backend..."
+          docker-compose up -d backend
+          
+          # Show status
+          echo "Backend status:"
+          docker-compose ps backend
+          ENDSSH2
+          
+          echo "=== Step 5: Cleanup on Public EC2 ==="
+          rm -f ~/backend-image.tar
+          
+          echo "=== Deployment completed successfully ==="
+          ENDSSH
+      
+      - name: Wait for backend to start
+        run: sleep 30
+      
+      - name: Check backend status
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ubuntu@${{ secrets.PRIVATE_EC2_IP }} 'cd ${{ env.PROJECT_DIR }} && docker-compose ps backend'"
+      
+      - name: Check backend logs
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.PUBLIC_EC2_IP }} \
+            "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ubuntu@${{ secrets.PRIVATE_EC2_IP }} 'cd ${{ env.PROJECT_DIR }} && docker-compose logs --tail=50 backend'"
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
+          rm -f backend-image.tar
+      
+      - name: Deployment Summary
+        run: |
+          echo "========================================="
+          echo "Backend Deployment Completed!"
+          echo "========================================="
+          echo "Backend API: http://${{ secrets.PUBLIC_EC2_IP }}/api"
+          echo "Nginx: http://${{ secrets.PUBLIC_EC2_IP }}"
