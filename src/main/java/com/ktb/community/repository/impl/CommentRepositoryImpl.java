@@ -35,15 +35,29 @@ public class CommentRepositoryImpl implements CommentRepositoryCustom {
         QComment c = QComment.comment;
         QPost p = QPost.post;
         
+        // 페이징 쿼리: fetchJoin을 사용하지 않고 일반 join 사용
+        // fetchJoin을 사용하면 페이징이 제대로 작동하지 않을 수 있음
         List<Comment> content = queryFactory
                 .selectFrom(c)
                 .join(c.post, p)
-                .join(c.author).fetchJoin()
+                .join(c.author)  // 일반 join 사용 (fetchJoin 제거)
                 .where(p.id.eq(postId).and(c.deleted.isFalse()))
                 .orderBy(c.publishedAt.asc(), c.id.asc())
                 .offset(pageable.getOffset())
                 .limit(pageable.getPageSize())
                 .fetch();
+        
+        // author를 별도로 로드하여 N+1 문제 방지
+        if (!content.isEmpty()) {
+            List<Integer> commentIds = content.stream()
+                    .map(Comment::getId)
+                    .toList();
+            queryFactory
+                    .selectFrom(c)
+                    .join(c.author).fetchJoin()
+                    .where(c.id.in(commentIds))
+                    .fetch();
+        }
         
         Long total = queryFactory
                 .select(c.count())
